@@ -38,3 +38,31 @@ type Config struct {
 	// PowerRestoredFn is invoked every time line power is restored.
 	PowerRestoredFn func()
 }
+
+func (c *Config) getAddr() string {
+	if c.Addr == "" {
+		return "localhost:3493"
+	}
+	return c.Addr
+}
+
+func (c *Config) getName() string {
+	if c.Name == "" {
+		return "ups"
+	}
+	return c.Name
+}
+
+func (c *Config) getReconnectInterval() time.Duration {
+	if c.ReconnectInterval == 0 {
+		return 30 * time.Second
+	}
+	return c.ReconnectInterval
+}
+
+func (c *Config) getPollInterval() time.Duration {
+	if c.PollInterval == 0 {
+		return 5 * time.Second
+	}
+	return c.PollInterval
+}

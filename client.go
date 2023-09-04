@@ -54,7 +54,7 @@ func (c *Client) runCommand(conn net.Conn, cmd string) (string, error) {
 }
 
 func (c *Client) getStatus(conn net.Conn) (bool, error) {
-	v, err := c.runCommand(conn, fmt.Sprintf("GET VAR %s ups.status", c.cfg.Name))
+	v, err := c.runCommand(conn, fmt.Sprintf("GET VAR %s ups.status", c.cfg.getName()))
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +79,7 @@ func (c *Client) loop() error {
 	dialer := &net.Dialer{
 		Timeout: c.cfg.ReconnectInterval,
 	}
-	conn, err := dialer.DialContext(c.ctx, "tcp", c.cfg.Addr)
+	conn, err := dialer.DialContext(c.ctx, "tcp", c.cfg.getAddr())
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (c *Client) loop() error {
 
 		// Wait for next poll interval
 		select {
-		case <-time.After(c.cfg.PollInterval):
+		case <-time.After(c.cfg.getPollInterval()):
 		case <-c.ctx.Done():
 			conn.Close()
 			return nil
@@ -136,7 +136,7 @@ func (c *Client) run() {
 
 		// Retry the connection every 30 seconds
 		select {
-		case <-time.After(c.cfg.ReconnectInterval):
+		case <-time.After(c.cfg.getReconnectInterval()):
 		case <-c.ctx.Done():
 			return
 		}
