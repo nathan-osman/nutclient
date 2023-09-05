@@ -23,34 +23,48 @@ type Client struct {
 	closedChan chan any
 }
 
-func (c *Client) runCommand(conn net.Conn, cmd string) (string, error) {
+func (c *Client) runCommand(conn net.Conn, cmd string) (v string, cErr error) {
 
 	// Create a goroutine to monitor the context; if told to shut down, the
 	// connection is closed; otherwise use the abortChan to shutdown the
 	// monitoring goroutine
-	abortChan := make(chan any)
+	var (
+		abortChan = make(chan any)
+		errChan   = make(chan any)
+		canceled  = false
+	)
+	defer func() {
+		<-errChan
+		if canceled {
+			cErr = context.Canceled
+		}
+	}()
 	defer close(abortChan)
 	go func() {
 		select {
 		case <-c.ctx.Done():
+			canceled = true
 			conn.Close()
 		case <-abortChan:
 		}
+		close(errChan)
 	}()
 
 	// Write the command
 	if _, err := conn.Write([]byte(cmd + "\n")); err != nil {
-		return "", err
+		cErr = err
+		return
 	}
 
 	// Read the response
 	r := bufio.NewScanner(conn)
 	if ok := r.Scan(); !ok {
-		return "", r.Err()
+		cErr = r.Err()
+		return
 	}
 
-	// Return the response
-	return r.Text(), nil
+	v = r.Text()
+	return
 }
 
 func (c *Client) getStatus(conn net.Conn) (bool, error) {
@@ -73,22 +87,9 @@ func (c *Client) getStatus(conn net.Conn) (bool, error) {
 	}
 }
 
-func (c *Client) loop() error {
+func (c *Client) loop(conn net.Conn) error {
 
-	// Connect to the server
-	dialer := &net.Dialer{
-		Timeout: c.cfg.ReconnectInterval,
-	}
-	conn, err := dialer.DialContext(c.ctx, "tcp", c.cfg.getAddr())
-	if err != nil {
-		return err
-	}
-
-	// Connected; invoke the callback if specified
-	if c.cfg.ConnectedFn != nil {
-		c.cfg.ConnectedFn()
-	}
-
+	// Retrieve the status every n seconds until an error occurs
 	for {
 
 		// Get the current power status
@@ -113,9 +114,35 @@ func (c *Client) loop() error {
 		case <-time.After(c.cfg.getPollInterval()):
 		case <-c.ctx.Done():
 			conn.Close()
-			return nil
+			return context.Canceled
 		}
 	}
+}
+
+func (c *Client) lifecycle() error {
+
+	dialer := &net.Dialer{
+		Timeout: c.cfg.ReconnectInterval,
+	}
+
+	// Connect to the server
+	conn, err := dialer.DialContext(c.ctx, "tcp", c.cfg.getAddr())
+	if err != nil {
+		return err
+	}
+
+	// Connected; invoke the callback if specified
+	if c.cfg.ConnectedFn != nil {
+		c.cfg.ConnectedFn()
+	}
+
+	// Run the loop until an error is encountered - either the context is
+	// canceled or the client was disconnected
+	err = c.loop(conn)
+	if err != context.Canceled && c.cfg.DisconnectedFn != nil {
+		c.cfg.DisconnectedFn()
+	}
+	return err
 }
 
 func (c *Client) run() {
@@ -126,12 +153,8 @@ func (c *Client) run() {
 
 	defer close(c.closedChan)
 	for {
-		if err := c.loop(); err == nil || err == context.Canceled {
+		if err := c.lifecycle(); err == context.Canceled {
 			return
-		} else {
-			if c.cfg.DisconnectedFn != nil {
-				c.cfg.DisconnectedFn()
-			}
 		}
 
 		// Retry the connection every 30 seconds
