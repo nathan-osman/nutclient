@@ -15,12 +15,13 @@ import "github.com/nathan-osman/nutclient"
 
 Next, create a `Client` instance using `nutclient.New()`.
 
-The `Config` struct passed to `New` specifies the address of the NUT server and the name of the UPS you are connecting to. It also allows you to specify the callbacks that will be invoked when power events occur:
+The `Config` struct passed to `New` specifies the address of the NUT server and the name of the UPS you are connecting to. It also allows you to specify the polling interval and callbacks that will be invoked when power events occur:
 
 ```golang
 c := nutclient.New(&nutclient.Config{
     Addr: "localhost:3493",
     Name: "ups",
+    PollInterval: 5 * time.Second,
     ConnectedFn: func() {
         fmt.Println("Connected!")
     },

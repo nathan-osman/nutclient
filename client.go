@@ -83,30 +83,37 @@ func (c *Client) getStatus(conn net.Conn) (bool, error) {
 }
 
 func (c *Client) loop(conn net.Conn) error {
-
-	// Retrieve the status every n seconds until an error occurs
 	for {
 
-		// Get the current power status
-		onBattery, err := c.getStatus(conn)
-		if err != nil {
-			return err
-		}
+		var pollChan <-chan time.Time
 
-		// If status != last status, then a power change has occurred
-		switch {
-		case !c.onBattery && onBattery && c.cfg.PowerLostFn != nil:
-			c.cfg.PowerLostFn()
-		case c.onBattery && !onBattery && c.cfg.PowerRestoredFn != nil:
-			c.cfg.PowerRestoredFn()
-		}
+		// Retrieve the status if PollInterval is set
+		if c.cfg.PollInterval != 0 {
 
-		// Store status for next iteration
-		c.onBattery = onBattery
+			// Get the current power status
+			onBattery, err := c.getStatus(conn)
+			if err != nil {
+				return err
+			}
+
+			// If status != last status, then a power change has occurred
+			switch {
+			case !c.onBattery && onBattery && c.cfg.PowerLostFn != nil:
+				c.cfg.PowerLostFn()
+			case c.onBattery && !onBattery && c.cfg.PowerRestoredFn != nil:
+				c.cfg.PowerRestoredFn()
+			}
+
+			// Store status for next iteration
+			c.onBattery = onBattery
+
+			// Wait for next iteration
+			pollChan = time.After(c.cfg.PollInterval)
+		}
 
 		// Wait for next poll interval
 		select {
-		case <-time.After(c.cfg.getPollInterval()):
+		case <-pollChan:
 		case <-c.ctx.Done():
 			conn.Close()
 			return context.Canceled
