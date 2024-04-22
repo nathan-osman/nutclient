@@ -1,17 +1,13 @@
 package nutclient
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"net"
-	"regexp"
-	"strings"
 	"time"
 )
 
-var statusRegexp = regexp.MustCompile(`^VAR \S+ ups.status "(.*)"$`)
 var errInvalidStatus = errors.New("invalid response received from NUT server")
 
 // Client connects to a NUT server and monitors it for events.
@@ -23,7 +19,7 @@ type Client struct {
 	closedChan chan any
 }
 
-func (c *Client) runCommand(conn net.Conn, cmd string) (v string, cErr error) {
+func (c *Client) runCommand(conn net.Conn, cmd string, r responseReader) (cErr error) {
 
 	// Create a goroutine to monitor the context; if told to shut down, the
 	// connection is closed; otherwise use the abortChan to shutdown the
@@ -57,27 +53,24 @@ func (c *Client) runCommand(conn net.Conn, cmd string) (v string, cErr error) {
 	}
 
 	// Read the response
-	r := bufio.NewScanner(conn)
-	if ok := r.Scan(); !ok {
-		cErr = r.Err()
+	if err := r.parse(conn); err != nil {
+		cErr = err
 		return
 	}
 
-	v = r.Text()
 	return
 }
 
 func (c *Client) getStatus(conn net.Conn) (bool, error) {
-	v, err := c.runCommand(conn, fmt.Sprintf("GET VAR %s ups.status", c.cfg.getName()))
-	if err != nil {
+	l := &listReader{}
+	if err := c.runCommand(
+		conn,
+		fmt.Sprintf("LIST VAR %s", c.cfg.getName()),
+		l,
+	); err != nil {
 		return false, err
 	}
-	matches := statusRegexp.FindStringSubmatch(v)
-	if len(matches) == 0 {
-		return false, errInvalidStatus
-	}
-	strParts := strings.Split(matches[1], " ")
-	switch strParts[0] {
+	switch l.variables["ups.status"] {
 	case "OL":
 		return false, nil
 	case "OB":
