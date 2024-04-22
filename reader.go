@@ -98,7 +98,10 @@ func (l *listReader) parse(r io.Reader) error {
 	l.baseReader.scanner = bufio.NewScanner(r)
 	l.baseReader.scanner.Split(split)
 	l.variables = map[string]string{}
-	if !l.expectKeyword("begin") || !l.expectKeyword("list") || !l.next() {
+	if !l.expectKeyword("begin") ||
+		!l.expectKeyword("list") ||
+		!l.expectKeyword("var") ||
+		!l.next() {
 		return errBeginListMissing
 	}
 	for l.next() {

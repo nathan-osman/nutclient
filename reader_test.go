@@ -74,7 +74,7 @@ END LIST VAR ups`,
 		},
 		{
 			name: "two variables",
-			input: `BEGIN LIST ups
+			input: `BEGIN LIST VAR ups
 VAR ups k1 "v1"
 VAR ups k2 "v2"
 END LIST VAR ups`,
