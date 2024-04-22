@@ -66,31 +66,38 @@ func split(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	return
 }
 
-type responseReader struct {
+type baseReader struct {
 	scanner *bufio.Scanner
 }
 
-func (r *responseReader) next() bool {
-	if !r.scanner.Scan() {
+func (b *baseReader) next() bool {
+	if !b.scanner.Scan() {
 		return false
 	}
-	return len(r.scanner.Text()) != 0
+	return len(b.scanner.Text()) != 0
 }
 
-func (r *responseReader) isKeyword(v string) bool {
-	return strings.ToLower(r.scanner.Text()) == v
+func (b *baseReader) isKeyword(v string) bool {
+	return strings.ToLower(b.scanner.Text()) == v
 }
 
-func (r *responseReader) expectKeyword(v string) bool {
-	return r.next() && r.isKeyword(v)
+func (b *baseReader) expectKeyword(v string) bool {
+	return b.next() && b.isKeyword(v)
+}
+
+type responseReader interface {
+	parse(io.Reader) error
 }
 
 type listReader struct {
-	responseReader
+	baseReader
 	variables map[string]string
 }
 
-func (l *listReader) parse() error {
+func (l *listReader) parse(r io.Reader) error {
+	l.baseReader.scanner = bufio.NewScanner(r)
+	l.baseReader.scanner.Split(split)
+	l.variables = map[string]string{}
 	if !l.expectKeyword("begin") || !l.expectKeyword("list") || !l.next() {
 		return errBeginListMissing
 	}
@@ -119,18 +126,4 @@ func (l *listReader) parse() error {
 		l.variables[varName] = l.scanner.Text()
 	}
 	return errUnexpectedEof
-}
-
-func newListReader(r io.Reader) (*listReader, error) {
-	l := &listReader{
-		responseReader: responseReader{
-			scanner: bufio.NewScanner(r),
-		},
-		variables: map[string]string{},
-	}
-	l.scanner.Split(split)
-	if err := l.parse(); err != nil {
-		return nil, err
-	}
-	return l, nil
 }

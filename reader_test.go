@@ -84,7 +84,10 @@ END LIST VAR ups`,
 			},
 		},
 	} {
-		l, err := newListReader(strings.NewReader(v.input))
+		var (
+			l   = &listReader{}
+			err = l.parse(strings.NewReader(v.input))
+		)
 		if err != nil {
 			if !v.err {
 				t.Fatalf("%s: %s", v.name, err)
