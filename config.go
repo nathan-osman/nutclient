@@ -21,8 +21,7 @@ type Config struct {
 	ReconnectInterval time.Duration
 
 	// PollInterval specifies how often the status of the UPS should be polled.
-	// If unset, the status will not be polled. You can still manually query
-	// the status of the UPS with Command().
+	// If unset, the default is 5 seconds.
 	PollInterval time.Duration
 
 	// ConnectedFn is invoked every time a connection is established with the
@@ -59,4 +58,11 @@ func (c *Config) getReconnectInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return c.ReconnectInterval
+}
+
+func (c *Config) getPollInterval() time.Duration {
+	if c.PollInterval == 0 {
+		return 5 * time.Second
+	}
+	return c.PollInterval
 }
