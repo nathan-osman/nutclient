@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -70,10 +71,11 @@ func (c *Client) getStatus(conn net.Conn) (bool, error) {
 	); err != nil {
 		return false, err
 	}
-	switch l.variables["ups.status"] {
-	case "OL":
+	v := l.variables["ups.status"]
+	switch {
+	case strings.HasPrefix(v, "OL"):
 		return false, nil
-	case "OB":
+	case v == "OB" || v == "LB":
 		return true, nil
 	default:
 		return false, errInvalidStatus
