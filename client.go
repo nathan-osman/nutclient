@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/exp/maps"
 )
 
 var errInvalidStatus = errors.New("invalid response received from NUT server")
 
 // Client connects to a NUT server and monitors it for events.
 type Client struct {
+	mutex      sync.RWMutex
+	lastStatus map[string]string
 	onBattery  bool
 	cfg        *Config
 	ctx        context.Context
@@ -71,6 +76,11 @@ func (c *Client) getStatus(conn net.Conn) (bool, error) {
 	); err != nil {
 		return false, err
 	}
+	func() {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+		c.lastStatus = l.variables
+	}()
 	v := l.variables["ups.status"]
 	switch {
 	case strings.HasPrefix(v, "OL"):
@@ -83,6 +93,13 @@ func (c *Client) getStatus(conn net.Conn) (bool, error) {
 }
 
 func (c *Client) loop(conn net.Conn) error {
+
+	// Clear the lastStatus on disconnect since it is now out of date
+	defer func() {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+		c.lastStatus = nil
+	}()
 
 	// Retrieve the status every n seconds until an error occurs
 	for {
@@ -174,6 +191,20 @@ func New(cfg *Config) *Client {
 	)
 	go c.run()
 	return c
+}
+
+// Status returns the current status of the UPS. This will be the value from
+// the last time it was polled. If an error occurred or the status is not yet
+// available, nil is returned.
+func (c *Client) Status() map[string]string {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	if c.lastStatus == nil {
+		return nil
+	}
+	lastStatus := map[string]string{}
+	maps.Copy(lastStatus, c.lastStatus)
+	return lastStatus
 }
 
 // Close shuts down the client. It is guaranteed that no more callbacks will be

@@ -36,3 +36,16 @@ c := nutclient.New(&nutclient.Config{
 })
 defer c.Close()
 ```
+
+To obtain all status values, use `Status()`. For example, to manually obtain the UPS battery status, use:
+
+```golang
+var statusVars map[string]string
+statusVars = c.Status()
+if statusVars != nil {
+    fmt.Printf(
+        "Battery: %s\n",
+        statusVars["ups.status"],
+    )
+}
+```
