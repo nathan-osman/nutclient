@@ -21,7 +21,7 @@ func TestSplit(t *testing.T) {
 		},
 		{
 			name:   "whitespace",
-			input:  " test\ttest ",
+			input:  " test\ttest\n",
 			output: []string{"test", "test"},
 		},
 		{
@@ -50,6 +50,49 @@ func TestSplit(t *testing.T) {
 		}
 		if v.err != (s.Err() != nil) {
 			t.Fatalf("%s: %#v != %#v", v.name, v.err, s.Err())
+		}
+	}
+}
+
+func TestListReader(t *testing.T) {
+	for _, v := range []struct {
+		name   string
+		input  string
+		output map[string]string
+		err    bool
+	}{
+		{
+			name:  "empty input",
+			input: "",
+			err:   true,
+		},
+		{
+			name: "empty list",
+			input: `BEGIN LIST ups
+END LIST VAR ups`,
+			output: map[string]string{},
+		},
+		{
+			name: "two variables",
+			input: `BEGIN LIST ups
+VAR ups k1 "v1"
+VAR ups k2 "v2"
+END LIST VAR ups`,
+			output: map[string]string{
+				"k1": "v1",
+				"k2": "v2",
+			},
+		},
+	} {
+		l, err := newListReader(strings.NewReader(v.input))
+		if err != nil {
+			if !v.err {
+				t.Fatalf("%s: %s", v.name, err)
+			}
+		} else {
+			if !reflect.DeepEqual(v.output, l.variables) {
+				t.Fatalf("%s: %#v != %#v", v.name, v.output, l.variables)
+			}
 		}
 	}
 }
