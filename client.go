@@ -67,8 +67,7 @@ func (c *Client) runCommand(conn net.Conn, cmd string, r responseReader) (cErr e
 	return
 }
 
-func (c *Client) getStatus(conn net.Conn) (bool, error) {
-	l := &listReader{}
+func (c *Client) getStatus(conn net.Conn, l *listReader) (bool, error) {
 	if err := c.runCommand(
 		conn,
 		fmt.Sprintf("LIST VAR %s", c.cfg.getName()),
@@ -101,11 +100,14 @@ func (c *Client) loop(conn net.Conn) error {
 		c.lastStatus = nil
 	}()
 
+	// Create the response reader for the session
+	l := &listReader{}
+
 	// Retrieve the status every n seconds until an error occurs
 	for {
 
 		// Get the current power status
-		onBattery, err := c.getStatus(conn)
+		onBattery, err := c.getStatus(conn, l)
 		if err != nil {
 			return err
 		}
