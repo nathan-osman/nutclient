@@ -68,7 +68,7 @@ func TestListReader(t *testing.T) {
 		},
 		{
 			name: "empty list",
-			input: `BEGIN LIST ups
+			input: `BEGIN LIST VAR ups
 END LIST VAR ups`,
 			output: map[string]string{},
 		},
@@ -84,11 +84,9 @@ END LIST VAR ups`,
 			},
 		},
 	} {
-		var (
-			l   = &listReader{}
-			err = l.parse(strings.NewReader(v.input))
-		)
-		if err != nil {
+		l := &listReader{}
+		l.init(strings.NewReader(v.input))
+		if err := l.parse(); err != nil {
 			if !v.err {
 				t.Fatalf("%s: %s", v.name, err)
 			}

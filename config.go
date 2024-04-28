@@ -1,6 +1,7 @@
 package nutclient
 
 import (
+	"strings"
 	"time"
 )
 
@@ -21,7 +22,7 @@ type Config struct {
 	ReconnectInterval time.Duration
 
 	// PollInterval specifies how often the status of the UPS should be polled.
-	// If unset, the default is 5 seconds.
+	// If unset (zero), polling will not occur.
 	PollInterval time.Duration
 
 	// ConnectedFn is invoked every time a connection is established with the
@@ -37,6 +38,13 @@ type Config struct {
 
 	// PowerRestoredFn is invoked every time line power is restored.
 	PowerRestoredFn func()
+
+	// EvaluateStatusFn is used to determine if the UPS is on (backup) battery
+	// power based on the provided status. If unset, a default algorithm will
+	// be used. It is recommended that you observe your UPS under different
+	// conditions (line power / on battery) to determine which values your
+	// model returns.
+	EvaluateStatusFn func(string) bool
 }
 
 func (c *Config) getAddr() string {
@@ -60,9 +68,14 @@ func (c *Config) getReconnectInterval() time.Duration {
 	return c.ReconnectInterval
 }
 
-func (c *Config) getPollInterval() time.Duration {
-	if c.PollInterval == 0 {
-		return 5 * time.Second
+func (c *Config) runEvaluateStatusFn(v string) bool {
+	if c.EvaluateStatusFn != nil {
+		return c.EvaluateStatusFn(v)
 	}
-	return c.PollInterval
+	for _, p := range strings.Split(v, " ") {
+		if p == "OL" {
+			return false
+		}
+	}
+	return true
 }

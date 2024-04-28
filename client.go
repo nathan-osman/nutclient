@@ -5,27 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
-	"sync"
 	"time"
-
-	"golang.org/x/exp/maps"
 )
 
-var errInvalidStatus = errors.New("invalid response received from NUT server")
+var errNotConnected = errors.New("not connected to the server")
+
+type cmdResponse struct {
+	data map[string]string
+	err  error
+}
 
 // Client connects to a NUT server and monitors it for events.
 type Client struct {
-	mutex      sync.RWMutex
-	lastStatus map[string]string
-	onBattery  bool
-	cfg        *Config
-	ctx        context.Context
-	cancel     context.CancelFunc
-	closedChan chan any
+	onBattery    bool
+	cfg          *Config
+	ctx          context.Context
+	cancel       context.CancelFunc
+	requestChan  chan any
+	responseChan chan cmdResponse
 }
 
-func (c *Client) runCommand(conn net.Conn, cmd string, r responseReader) (cErr error) {
+func (c *Client) runCommand(conn net.Conn, r responseReader) (cErr error) {
 
 	// Create a goroutine to monitor the context; if told to shut down, the
 	// connection is closed; otherwise use the abortChan to shutdown the
@@ -52,14 +52,24 @@ func (c *Client) runCommand(conn net.Conn, cmd string, r responseReader) (cErr e
 		close(errChan)
 	}()
 
+	// Initialize the response reader
+	r.init(conn)
+
 	// Write the command
-	if _, err := conn.Write([]byte(cmd + "\n")); err != nil {
+	if _, err := conn.Write(
+		[]byte(
+			fmt.Sprintf(
+				"LIST VAR %s",
+				c.cfg.getName(),
+			),
+		),
+	); err != nil {
 		cErr = err
 		return
 	}
 
 	// Read the response
-	if err := r.parse(conn); err != nil {
+	if err := r.parse(); err != nil {
 		cErr = err
 		return
 	}
@@ -67,68 +77,75 @@ func (c *Client) runCommand(conn net.Conn, cmd string, r responseReader) (cErr e
 	return
 }
 
-func (c *Client) getStatus(conn net.Conn, l *listReader) (bool, error) {
-	if err := c.runCommand(
-		conn,
-		fmt.Sprintf("LIST VAR %s", c.cfg.getName()),
-		l,
-	); err != nil {
-		return false, err
-	}
-	func() {
-		c.mutex.Lock()
-		defer c.mutex.Unlock()
-		c.lastStatus = l.variables
-	}()
-	v := l.variables["ups.status"]
+func (c *Client) processResponse(data map[string]string) {
+
+	// Determine if the status is "on battery"
+	onBattery := c.cfg.runEvaluateStatusFn(data["ups.status"])
+
+	// If the battery status has changed, invoke the callbacks
 	switch {
-	case strings.HasPrefix(v, "OL"):
-		return false, nil
-	case v == "OB" || v == "LB":
-		return true, nil
-	default:
-		return false, errInvalidStatus
+	case !c.onBattery && onBattery && c.cfg.PowerLostFn != nil:
+		c.cfg.PowerLostFn()
+	case c.onBattery && !onBattery && c.cfg.PowerRestoredFn != nil:
+		c.cfg.PowerRestoredFn()
 	}
+
+	// Store status for next iteration
+	c.onBattery = onBattery
 }
 
 func (c *Client) loop(conn net.Conn) error {
-
-	// Clear the lastStatus on disconnect since it is now out of date
-	defer func() {
-		c.mutex.Lock()
-		defer c.mutex.Unlock()
-		c.lastStatus = nil
-	}()
-
-	// Create the response reader for the session
-	l := &listReader{}
-
-	// Retrieve the status every n seconds until an error occurs
+	var (
+		now      = time.Now()
+		nextPoll = now
+		nextChan <-chan time.Time
+	)
 	for {
 
-		// Get the current power status
-		onBattery, err := c.getStatus(conn, l)
-		if err != nil {
-			return err
+		var sendResponse bool
+
+		// If a polling interval was set, initialize the timer channel to the
+		// time of the next timer interval
+		if c.cfg.PollInterval != 0 {
+			time.After(nextPoll.Sub(now))
 		}
 
-		// If status != last status, then a power change has occurred
-		switch {
-		case !c.onBattery && onBattery && c.cfg.PowerLostFn != nil:
-			c.cfg.PowerLostFn()
-		case c.onBattery && !onBattery && c.cfg.PowerRestoredFn != nil:
-			c.cfg.PowerRestoredFn()
-		}
-
-		// Store status for next iteration
-		c.onBattery = onBattery
-
-		// Wait for next poll interval
+		// Wait for:
+		// - the next poll interval
+		// - an explicit request to poll
+		// - the client being asked to shut down
 		select {
-		case <-time.After(c.cfg.getPollInterval()):
+		case <-nextChan:
+		case <-c.requestChan:
+			sendResponse = true
 		case <-c.ctx.Done():
 			conn.Close()
 			return context.Canceled
+		}
+
+		// Initialize the responseReader
+		l := &listReader{}
+
+		// Make the request
+		if err := c.runCommand(conn, l); err != nil {
+			if sendResponse {
+				c.responseChan <- cmdResponse{err: err}
+			}
+			return err
+		}
+
+		// Process the response
+		c.processResponse(l.variables)
+
+		// Send the response if this was invoked in response to a command
+		if sendResponse {
+			c.responseChan <- cmdResponse{data: l.variables}
+		}
+
+		// Update the current time and next poll interval (if necessary)
+		if c.cfg.PollInterval != 0 {
+			now = time.Now()
+			nextPoll = nextPoll.Add(c.cfg.PollInterval)
 		}
 	}
 }
@@ -165,7 +182,7 @@ func (c *Client) run() {
 	// - while connected, poll every [interval]
 	// - if disconnected, reconnect after a few seconds
 
-	defer close(c.closedChan)
+	defer close(c.responseChan)
 	for {
 		if err := c.lifecycle(); err == context.Canceled {
 			return
@@ -174,6 +191,8 @@ func (c *Client) run() {
 		// Retry the connection every 30 seconds
 		select {
 		case <-time.After(c.cfg.getReconnectInterval()):
+		case <-c.requestChan:
+			c.responseChan <- cmdResponse{err: errNotConnected}
 		case <-c.ctx.Done():
 			return
 		}
@@ -185,33 +204,29 @@ func New(cfg *Config) *Client {
 	var (
 		ctx, cancel = context.WithCancel(context.Background())
 		c           = &Client{
-			cfg:        cfg,
-			ctx:        ctx,
-			cancel:     cancel,
-			closedChan: make(chan any),
+			cfg:          cfg,
+			ctx:          ctx,
+			cancel:       cancel,
+			requestChan:  make(chan any),
+			responseChan: make(chan cmdResponse),
 		}
 	)
 	go c.run()
 	return c
 }
 
-// Status returns the current status of the UPS. This will be the value from
-// the last time it was polled. If an error occurred or the status is not yet
-// available, nil is returned.
-func (c *Client) Status() map[string]string {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-	if c.lastStatus == nil {
-		return nil
-	}
-	lastStatus := map[string]string{}
-	maps.Copy(lastStatus, c.lastStatus)
-	return lastStatus
+// Status returns the current status of the UPS. If the command fails or the
+// UPS is not connected, an error is returned. This must not be called after
+// Close() is invoked.
+func (c *Client) Status() (map[string]string, error) {
+	c.requestChan <- nil
+	v := <-c.responseChan
+	return v.data, v.err
 }
 
 // Close shuts down the client. It is guaranteed that no more callbacks will be
 // invoked after this method returns.
 func (c *Client) Close() {
 	c.cancel()
-	<-c.closedChan
+	<-c.responseChan
 }

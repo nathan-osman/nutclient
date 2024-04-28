@@ -70,6 +70,11 @@ type baseReader struct {
 	scanner *bufio.Scanner
 }
 
+func (b *baseReader) init(r io.Reader) {
+	b.scanner = bufio.NewScanner(r)
+	b.scanner.Split(split)
+}
+
 func (b *baseReader) next() bool {
 	if !b.scanner.Scan() {
 		return false
@@ -86,7 +91,8 @@ func (b *baseReader) expectKeyword(v string) bool {
 }
 
 type responseReader interface {
-	parse(io.Reader) error
+	init(io.Reader)
+	parse() error
 }
 
 type listReader struct {
@@ -94,9 +100,7 @@ type listReader struct {
 	variables map[string]string
 }
 
-func (l *listReader) parse(r io.Reader) error {
-	l.baseReader.scanner = bufio.NewScanner(r)
-	l.baseReader.scanner.Split(split)
+func (l *listReader) parse() error {
 	l.variables = map[string]string{}
 	if !l.expectKeyword("begin") ||
 		!l.expectKeyword("list") ||
