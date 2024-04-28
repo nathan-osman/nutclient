@@ -59,7 +59,7 @@ func (c *Client) runCommand(conn net.Conn, r responseReader) (cErr error) {
 	if _, err := conn.Write(
 		[]byte(
 			fmt.Sprintf(
-				"LIST VAR %s",
+				"LIST VAR %s\n",
 				c.cfg.getName(),
 			),
 		),
