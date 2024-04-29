@@ -103,7 +103,7 @@ func (c *Client) loop(n *nutConn) error {
 		// If a polling interval was set, initialize the timer channel to the
 		// time of the next timer interval
 		if c.cfg.PollInterval != 0 {
-			time.After(nextPoll.Sub(now))
+			nextChan = time.After(nextPoll.Sub(now))
 		}
 
 		// Wait for:
