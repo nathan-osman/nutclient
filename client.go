@@ -10,9 +10,19 @@ import (
 
 var errNotConnected = errors.New("not connected to the server")
 
+const (
+	typeGet = iota
+	typeList
+)
+
+type cmdRequest struct {
+	cmdType int
+	cmd     string
+}
+
 type cmdResponse struct {
-	data map[string]string
-	err  error
+	v   any
+	err error
 }
 
 // Client connects to a NUT server and monitors it for events.
@@ -21,11 +31,11 @@ type Client struct {
 	cfg          *Config
 	ctx          context.Context
 	cancel       context.CancelFunc
-	requestChan  chan any
+	requestChan  chan cmdRequest
 	responseChan chan cmdResponse
 }
 
-func (c *Client) runCommand(conn net.Conn, r responseReader) (cErr error) {
+func (c *Client) runCommand(n *nutConn, cmdType int, cmd string) (v any, cErr error) {
 
 	// Create a goroutine to monitor the context; if told to shut down, the
 	// connection is closed; otherwise use the abortChan to shutdown the
@@ -46,41 +56,30 @@ func (c *Client) runCommand(conn net.Conn, r responseReader) (cErr error) {
 		select {
 		case <-c.ctx.Done():
 			canceled = true
-			conn.Close()
+			n.rwc.Close()
 		case <-abortChan:
 		}
 		close(errChan)
 	}()
 
-	// Initialize the response reader
-	r.init(conn)
-
-	// Write the command
-	if _, err := conn.Write(
-		[]byte(
-			fmt.Sprintf(
-				"LIST VAR %s\n",
-				c.cfg.getName(),
-			),
-		),
-	); err != nil {
-		cErr = err
+	// Run the command and return the appropriate response
+	switch cmdType {
+	case typeGet:
+		v, cErr = n.runGet(cmd)
+		return
+	case typeList:
+		v, cErr = n.runListMap(cmd)
 		return
 	}
 
-	// Read the response
-	if err := r.parse(); err != nil {
-		cErr = err
-		return
-	}
-
+	// Should be unreachable
 	return
 }
 
-func (c *Client) processResponse(data map[string]string) {
+func (c *Client) processResponse(v string) {
 
 	// Determine if the status is "on battery"
-	onBattery := c.cfg.runEvaluateStatusFn(data["ups.status"])
+	onBattery := c.cfg.runEvaluateStatusFn(v)
 
 	// If the battery status has changed, invoke the callbacks
 	switch {
@@ -94,16 +93,13 @@ func (c *Client) processResponse(data map[string]string) {
 	c.onBattery = onBattery
 }
 
-func (c *Client) loop(conn net.Conn) error {
+func (c *Client) loop(n *nutConn) error {
 	var (
 		now      = time.Now()
 		nextPoll = now
 		nextChan <-chan time.Time
 	)
 	for {
-
-		var sendResponse bool
-
 		// If a polling interval was set, initialize the timer channel to the
 		// time of the next timer interval
 		if c.cfg.PollInterval != 0 {
@@ -116,30 +112,25 @@ func (c *Client) loop(conn net.Conn) error {
 		// - the client being asked to shut down
 		select {
 		case <-nextChan:
-		case <-c.requestChan:
-			sendResponse = true
-		case <-c.ctx.Done():
-			conn.Close()
-			return context.Canceled
-		}
-
-		// Initialize the responseReader
-		l := &listReader{}
-
-		// Make the request
-		if err := c.runCommand(conn, l); err != nil {
-			if sendResponse {
-				c.responseChan <- cmdResponse{err: err}
+			v, err := c.runCommand(
+				n,
+				typeGet,
+				fmt.Sprintf("VAR %s ups.status", c.cfg.getName()),
+			)
+			if err != nil {
+				n.rwc.Close()
+				return err
 			}
-			return err
-		}
-
-		// Process the response
-		c.processResponse(l.variables)
-
-		// Send the response if this was invoked in response to a command
-		if sendResponse {
-			c.responseChan <- cmdResponse{data: l.variables}
+			c.processResponse(v.(string))
+		case r := <-c.requestChan:
+			v, err := c.runCommand(n, r.cmdType, r.cmd)
+			c.responseChan <- cmdResponse{
+				v:   v,
+				err: err,
+			}
+		case <-c.ctx.Done():
+			n.rwc.Close()
+			return context.Canceled
 		}
 
 		// Update the current time and next poll interval (if necessary)
@@ -167,9 +158,11 @@ func (c *Client) lifecycle() error {
 		c.cfg.ConnectedFn()
 	}
 
+	n := newNutConn(conn)
+
 	// Run the loop until an error is encountered - either the context is
 	// canceled or the client was disconnected
-	err = c.loop(conn)
+	err = c.loop(n)
 	if err != context.Canceled && c.cfg.DisconnectedFn != nil {
 		c.cfg.DisconnectedFn()
 	}
@@ -207,7 +200,7 @@ func New(cfg *Config) *Client {
 			cfg:          cfg,
 			ctx:          ctx,
 			cancel:       cancel,
-			requestChan:  make(chan any),
+			requestChan:  make(chan cmdRequest),
 			responseChan: make(chan cmdResponse),
 		}
 	)
@@ -219,9 +212,12 @@ func New(cfg *Config) *Client {
 // UPS is not connected, an error is returned. This must not be called after
 // Close() is invoked.
 func (c *Client) Status() (map[string]string, error) {
-	c.requestChan <- nil
+	c.requestChan <- cmdRequest{
+		cmdType: typeList,
+		cmd:     fmt.Sprintf("VAR %s", c.cfg.getName()),
+	}
 	v := <-c.responseChan
-	return v.data, v.err
+	return v.v.(map[string]string), v.err
 }
 
 // Close shuts down the client. It is guaranteed that no more callbacks will be
