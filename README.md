@@ -7,7 +7,7 @@ This package provides a very simple [NUT](https://networkupstools.org/) client f
 
 Go 1.18 is the minimum supported version.
 
-### Usage
+### Basic Usage
 
 To use the package in your program, begin by importing it:
 
@@ -50,3 +50,25 @@ fmt.Printf("Battery: %s\n", v)
 ```
 
 > Note: if the client is not currently connected to the NUT server, the method will return an error.
+
+### Monitoring a UPS
+
+The `monitor` package simplifies the task of monitoring a UPS server for power events. Its usage is fairly straightforward:
+
+```golang
+import "github.com/nathan-osman/nutclient/v3/monitor"
+
+c := monitor.New(
+    &monitor.Config{
+        Addr: "localhost:3493",
+        Name: "ups",
+        PowerLostFn: func() {
+            fmt.Println("Power lost!")
+        },
+        PowerRestoredFn: func() {
+            fmt.Println("Power restored!")
+        },
+    },
+)
+defer c.Close()
+```
