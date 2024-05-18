@@ -134,6 +134,7 @@ func (n *nutConn) send(cmd, v string) ([]string, []string, error) {
 	} else {
 		writeCmd = strings.Join([]string{cmd, v}, " ")
 	}
+	writeCmd += "\n"
 	if _, err := n.rw.Write([]byte(writeCmd)); err != nil {
 		return nil, nil, err
 	}
