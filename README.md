@@ -42,7 +42,7 @@ defer c.Close()
 Once connected, you can use methods like `Get()` to interact with the NUT server. For example, to lookup the current battery status of the UPS named "ups", you would use:
 
 ```golang
-v, err := c.Get("VAR ups ups.status")
+v, err := c.Get("VAR", "ups", "ups.status")
 if err != nil {
     // TODO: handle error
 }

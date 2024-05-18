@@ -13,9 +13,13 @@ type Config struct {
 	Addr string
 
 	// ReconnectInterval specifies the duration between attempts to reconnect
-	// to the server when the connection is lost. If unset, the default is 30
+	// to the server when the connection is lost. If unset, the default is 5
 	// seconds.
 	ReconnectInterval time.Duration
+
+	// KeepAliveInterval specifies how often a "keep-alive" command should be
+	// sent. If unset, no keep-alive command is sent.
+	KeepAliveInterval time.Duration
 
 	// ConnectedFn is invoked every time a connection is established with the
 	// server.
@@ -35,7 +39,7 @@ func (c *Config) getAddr() string {
 
 func (c *Config) getReconnectInterval() time.Duration {
 	if c.ReconnectInterval == 0 {
-		return 30 * time.Second
+		return 5 * time.Second
 	}
 	return c.ReconnectInterval
 }

@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/nathan-osman/nutclient/v3"
@@ -54,7 +53,9 @@ func (m *Monitor) run() {
 	for {
 		if connected {
 			if v, err := m.client.Get(
-				fmt.Sprintf("VAR %s ups.status", m.cfg.getName()),
+				"VAR",
+				m.cfg.getName(),
+				"ups.status",
 			); err == nil {
 				m.processResponse(v)
 			}
@@ -87,6 +88,7 @@ func New(cfg *Config) *Monitor {
 		&nutclient.Config{
 			Addr:              cfg.Addr,
 			ReconnectInterval: cfg.ReconnectInterval,
+			KeepAliveInterval: cfg.getKeepAliveInterval(),
 			ConnectedFn:       m.connected,
 			DisconnectedFn:    m.disconnected,
 		},

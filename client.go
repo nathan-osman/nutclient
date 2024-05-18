@@ -18,6 +18,7 @@ const (
 type cmdRequest struct {
 	cmdType int
 	cmd     string
+	args    []string
 }
 
 type cmdResponse struct {
@@ -39,6 +40,7 @@ func (c *Client) runCommand(
 	n *nutConn,
 	cmdType int,
 	cmd string,
+	args []string,
 ) (v any, cErr error) {
 
 	// Create a goroutine to monitor the context; if told to shut down, the
@@ -69,13 +71,13 @@ func (c *Client) runCommand(
 	// Run the command and return the appropriate response
 	switch cmdType {
 	case typeGet:
-		v, cErr = n.runGet(cmd)
+		v, cErr = n.runGet(args)
 		return
 	case typeList:
-		v, cErr = n.runList(cmd)
+		v, cErr = n.runList(args)
 		return
 	case typeCmd:
-		cErr = n.runCmd(cmd)
+		v, cErr = n.runCmd(cmd, args)
 		return
 	}
 
@@ -84,13 +86,33 @@ func (c *Client) runCommand(
 }
 
 func (c *Client) loop(conn net.Conn, n *nutConn) error {
+	var keepAliveTicker *time.Ticker
+	if c.cfg.KeepAliveInterval != 0 {
+		keepAliveTicker = time.NewTicker(c.cfg.KeepAliveInterval)
+		defer keepAliveTicker.Stop()
+	}
 	for {
+		var keepAliveChan <-chan time.Time
+		if keepAliveTicker != nil {
+			keepAliveChan = keepAliveTicker.C
+		}
 		select {
+		case <-keepAliveChan:
+			_, err := c.runCommand(conn, n, typeCmd, "HELP", nil)
+			if err != nil {
+				return err
+			}
 		case r := <-c.requestChan:
-			v, err := c.runCommand(conn, n, r.cmdType, r.cmd)
+			v, err := c.runCommand(conn, n, r.cmdType, r.cmd, r.args)
 			c.responseChan <- cmdResponse{
 				v:   v,
 				err: err,
+			}
+			if err != nil {
+				return err
+			}
+			if keepAliveTicker != nil {
+				keepAliveTicker.Reset(c.cfg.KeepAliveInterval)
 			}
 		case <-c.ctx.Done():
 			conn.Close()
@@ -170,11 +192,12 @@ func New(cfg *Config) *Client {
 	return c
 }
 
-// Get runs a GET command on the server
-func (c *Client) Get(cmd string) (string, error) {
+// Get runs a GET command on the server. The provided arguments are appended to
+// the GET command.
+func (c *Client) Get(args ...string) (string, error) {
 	c.requestChan <- cmdRequest{
 		cmdType: typeGet,
-		cmd:     cmd,
+		args:    args,
 	}
 	r := <-c.responseChan
 	return r.v.(string), r.err

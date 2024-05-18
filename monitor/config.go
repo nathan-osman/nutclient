@@ -16,6 +16,10 @@ type Config struct {
 	// ReconnectInterval specifies the duration passed to nutclient.New().
 	ReconnectInterval time.Duration
 
+	// KeepAliveInterval specifies how often a "keep-alive" command should be
+	// sent. If unset, the default is 30 seconds.
+	KeepAliveInterval time.Duration
+
 	// PollInterval specifies how often the status of the UPS should be polled.
 	// If unset, polling will be done every 30 seconds.
 	PollInterval time.Duration
@@ -47,6 +51,13 @@ func (c *Config) getName() string {
 		return "ups"
 	}
 	return c.Name
+}
+
+func (c *Config) getKeepAliveInterval() time.Duration {
+	if c.KeepAliveInterval == 0 {
+		return 30 * time.Second
+	}
+	return c.KeepAliveInterval
 }
 
 func (c *Config) getPollInterval() time.Duration {

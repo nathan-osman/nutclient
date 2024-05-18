@@ -123,40 +123,31 @@ func newNutConn(rw io.ReadWriter) *nutConn {
 	}
 }
 
-func (n *nutConn) send(cmd, v string) ([]string, []string, error) {
-	prefixes, err := parseLine(v)
-	if err != nil {
-		return nil, nil, err
-	}
-	var writeCmd string
-	if v == "" {
-		writeCmd = cmd
-	} else {
-		writeCmd = strings.Join([]string{cmd, v}, " ")
-	}
-	writeCmd += "\n"
-	if _, err := n.rw.Write([]byte(writeCmd)); err != nil {
-		return nil, nil, err
+func (n *nutConn) send(cmd string, args []string) ([]string, error) {
+	if _, err := n.rw.Write([]byte(
+		strings.Join(append([]string{cmd}, args...), " ") + "\n",
+	)); err != nil {
+		return nil, err
 	}
 	if !n.scanner.Scan() {
-		return nil, nil, n.scanner.Err()
+		return nil, n.scanner.Err()
 	}
 	l, err := parseLine(n.scanner.Text())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(l) >= 2 && strings.ToLower(l[0]) == "err" {
-		return nil, nil, fmt.Errorf("server returned %s", l[1])
+		return nil, fmt.Errorf("server returned %s", l[1])
 	}
-	return prefixes, l, nil
+	return l, nil
 }
 
-func (n *nutConn) runGet(v string) (string, error) {
-	prefixes, l, err := n.send("GET", v)
+func (n *nutConn) runGet(args []string) (string, error) {
+	l, err := n.send("GET", args)
 	if err != nil {
 		return "", err
 	}
-	t, err := trimPrefix(l, prefixes)
+	t, err := trimPrefix(l, args)
 	if err != nil {
 		return "", err
 	}
@@ -166,12 +157,12 @@ func (n *nutConn) runGet(v string) (string, error) {
 	return t[0], nil
 }
 
-func (n *nutConn) runList(v string) ([][]string, error) {
-	prefixes, l, err := n.send("LIST", v)
+func (n *nutConn) runList(args []string) ([][]string, error) {
+	l, err := n.send("LIST", args)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := trimPrefix(l, append([]string{"begin", "list"}, prefixes...)); err != nil {
+	if _, err := trimPrefix(l, append([]string{"begin", "list"}, args...)); err != nil {
 		return nil, err
 	}
 	values := [][]string{}
@@ -186,25 +177,30 @@ func (n *nutConn) runList(v string) ([][]string, error) {
 		if strings.ToLower(l[0]) == "end" {
 			break
 		}
-		t, err := trimPrefix(l, prefixes)
+		t, err := trimPrefix(l, args)
 		if err != nil {
 			return nil, err
 		}
 		values = append(values, t)
 	}
-	if _, err := trimPrefix(l, append([]string{"end", "list"}, prefixes...)); err != nil {
+	if _, err := trimPrefix(l, append([]string{"end", "list"}, args...)); err != nil {
 		return nil, err
 	}
 	return values, nil
 }
 
-func (n *nutConn) runCmd(v string) error {
-	_, l, err := n.send(v, "")
+func (n *nutConn) runCmd(cmd string, args []string) ([]string, error) {
+	l, err := n.send(cmd, args)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(l) < 1 || strings.ToLower(l[0]) != "ok" {
-		return errUnexpectedEOF
+	switch strings.ToLower(cmd) {
+	case "ver", "help":
+		return l, nil
+	default:
+		if len(l) == 0 || strings.ToLower(l[0]) != "ok" {
+			return nil, errUnexpectedEOF
+		}
+		return l[1:], nil
 	}
-	return nil
 }
