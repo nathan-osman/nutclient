@@ -110,15 +110,15 @@ func trimPrefix(v, prefixes []string) ([]string, error) {
 }
 
 type nutConn struct {
-	rwc     io.ReadWriteCloser
+	rw      io.ReadWriter
 	scanner *bufio.Scanner
 }
 
-func newNutConn(rwc io.ReadWriteCloser) *nutConn {
-	s := bufio.NewScanner(rwc)
+func newNutConn(rw io.ReadWriter) *nutConn {
+	s := bufio.NewScanner(rw)
 	s.Split(bufio.ScanLines)
 	return &nutConn{
-		rwc:     rwc,
+		rw:      rw,
 		scanner: s,
 	}
 }
@@ -128,9 +128,13 @@ func (n *nutConn) send(cmd, v string) ([]string, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := n.rwc.Write([]byte(
-		fmt.Sprintf("%s %s\n", cmd, v),
-	)); err != nil {
+	var writeCmd string
+	if v == "" {
+		writeCmd = cmd
+	} else {
+		writeCmd = strings.Join([]string{cmd, v}, " ")
+	}
+	if _, err := n.rw.Write([]byte(writeCmd)); err != nil {
 		return nil, nil, err
 	}
 	if !n.scanner.Scan() {
@@ -193,17 +197,13 @@ func (n *nutConn) runList(v string) ([][]string, error) {
 	return values, nil
 }
 
-func (n *nutConn) runListMap(v string) (map[string]string, error) {
-	l, err := n.runList(v)
+func (n *nutConn) runCmd(v string) error {
+	_, l, err := n.send(v, "")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	m := map[string]string{}
-	for _, keyVal := range l {
-		if len(keyVal) < 2 {
-			return nil, errMissingValue
-		}
-		m[keyVal[0]] = keyVal[1]
+	if len(l) < 1 || strings.ToLower(l[0]) != "ok" {
+		return errUnexpectedEOF
 	}
-	return m, nil
+	return nil
 }
