@@ -1,6 +1,6 @@
 ## nutclient
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/nathan-osman/nutclient.svg)](https://pkg.go.dev/github.com/nathan-osman/nutclient)
+[![Go Reference](https://pkg.go.dev/badge/github.com/nathan-osman/nutclient.svg)](https://pkg.go.dev/github.com/nathan-osman/nutclient/v3)
 [![MIT License](https://img.shields.io/badge/license-MIT-9370d8.svg?style=flat)](https://opensource.org/licenses/MIT)
 
 This package provides a very simple [NUT](https://networkupstools.org/) client for Go. Its current features include:
