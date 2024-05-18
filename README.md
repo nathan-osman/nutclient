@@ -19,7 +19,7 @@ To use the package in your program, begin by importing it:
 import "github.com/nathan-osman/nutclient/v3"
 ```
 
-Next, create a `Client` instance using `nutclient.New()`:
+Create a default `Client` instance for localhost using `nutclient.New()`:
 
 ```golang
 c := nutclient.New(nil)
@@ -55,7 +55,7 @@ fmt.Printf("Battery: %s\n", v)
 
 ### Monitoring a UPS
 
-The `monitor` package simplifies the task of monitoring a UPS server for power events. Its usage is fairly straightforward:
+The `monitor` package simplifies the task of monitoring a UPS server for power events:
 
 ```golang
 import "github.com/nathan-osman/nutclient/v3/monitor"
