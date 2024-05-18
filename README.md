@@ -3,7 +3,11 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/nathan-osman/nutclient.svg)](https://pkg.go.dev/github.com/nathan-osman/nutclient)
 [![MIT License](https://img.shields.io/badge/license-MIT-9370d8.svg?style=flat)](https://opensource.org/licenses/MIT)
 
-This package provides a very simple [NUT](https://networkupstools.org/) client for Go.
+This package provides a very simple [NUT](https://networkupstools.org/) client for Go. Its current features include:
+
+- Monitor for watching power events
+- Automatic reconnection when disconnected
+- Option for keep-alive commands to keep the socket open
 
 Go 1.18 is the minimum supported version.
 
@@ -49,8 +53,6 @@ if err != nil {
 fmt.Printf("Battery: %s\n", v)
 ```
 
-> Note: if the client is not currently connected to the NUT server, the method will return an error.
-
 ### Monitoring a UPS
 
 The `monitor` package simplifies the task of monitoring a UPS server for power events. Its usage is fairly straightforward:
@@ -72,3 +74,15 @@ c := monitor.New(
 )
 defer c.Close()
 ```
+
+### Important Notes
+
+NUT servers can be configured to drop open connections if no command is run after a certain timeout. Therefore, nutclient offers a `KeepAliveInterval` configuration option to run a no-op command:
+
+```golang
+&nutclient.Config{
+    KeepAliveInterval: 30 * time.Second,
+}
+```
+
+`monitor.Config` has this set by default.
