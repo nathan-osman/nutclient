@@ -200,7 +200,10 @@ func (c *Client) Get(args ...string) (string, error) {
 		args:    args,
 	}
 	r := <-c.responseChan
-	return r.v.(string), r.err
+	if r.err != nil {
+		return "", r.err
+	}
+	return r.v.(string), nil
 }
 
 // Close shuts down the client. It is guaranteed that no more callbacks will be
